@@ -1,0 +1,1316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Rosterra Dental</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;0,700;1,400&family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+    html,body{height:100%;font-family:'IBM Plex Sans',system-ui,sans-serif;background:#F0F2F5;color:#111827;}
+    #root{min-height:100%;}
+    input,select,textarea,button{font-family:'IBM Plex Sans',system-ui,sans-serif;}
+    ::-webkit-scrollbar{width:4px;}
+    ::-webkit-scrollbar-thumb{background:#CBD5E1;border-radius:2px;}
+    .fade{animation:fadeIn .35s ease both;}
+    @keyframes fadeIn{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useCallback } = React;
+
+/* ─── CONFIGURATION ─────────────────────────────────────────────────────────
+   STEP 1: Replace the empty string below with your Google Apps Script URL
+   after you deploy it. Instructions are in apps_script.js
+   ────────────────────────────────────────────────────────────────────────── */
+const API_URL = "https://script.google.com/macros/s/AKfycbwIwTdZmkZK_luToY9B2L0S5oqjneEIT6DY5OxNBxXn2yftKTBpDB8kbvu7y4YyeY1faw/exec";   // ← PASTE YOUR APPS SCRIPT URL HERE
+
+/* ─── DESIGN TOKENS ─────────────────────────────────────────────────────── */
+const C = {
+  navy:"#0D1F3C", navyMid:"#1A3A6B", teal:"#0E9F6E", tealL:"#D1FAE5",
+  tealD:"#064E3B", amber:"#D97706", amberL:"#FEF3C7", red:"#DC2626",
+  redL:"#FEE2E2", blue:"#1D4ED8", blueL:"#DBEAFE", grey:"#F0F2F5",
+  greyMid:"#E5E7EB", border:"#D1D5DB", text:"#111827",
+  textMid:"#4B5563", textDim:"#9CA3AF", white:"#FFFFFF",
+};
+
+/* ─── HELPERS ────────────────────────────────────────────────────────────── */
+const simpleHash = (str) => {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) { h = Math.imul(31, h) + str.charCodeAt(i) | 0; }
+  return Math.abs(h).toString(36);
+};
+
+/* ─── API LAYER ──────────────────────────────────────────────────────────── */
+const callApi = async (action, data = {}) => {
+  if (!API_URL) throw new Error("NO_API_URL");
+  const res = await fetch(API_URL, {
+    method: "POST",
+    body: JSON.stringify({ action, ...data }),
+    // No Content-Type header — avoids CORS preflight with Google Apps Script
+  });
+  const text = await res.text();
+  try { return JSON.parse(text); }
+  catch { throw new Error("Invalid response: " + text.slice(0, 100)); }
+};
+
+/* ─── SESSION ────────────────────────────────────────────────────────────── */
+const getSession = () => {
+  try { return JSON.parse(localStorage.getItem("rosterra_user") || "null"); }
+  catch { return null; }
+};
+const setSession = (user) => localStorage.setItem("rosterra_user", JSON.stringify(user));
+const clearSession = () => localStorage.removeItem("rosterra_user");
+
+/* ─── SHARED UI ATOMS ────────────────────────────────────────────────────── */
+const s = {
+  card: { background: C.white, borderRadius: 10, border: `1px solid ${C.greyMid}`, padding: "22px" },
+  label: { display: "block", fontSize: 12, fontWeight: 600, color: C.textMid, marginBottom: 5 },
+  input: {
+    width: "100%", border: `1px solid ${C.border}`, borderRadius: 6,
+    padding: "9px 12px", fontSize: 13, color: C.text, outline: "none",
+    background: C.white, boxSizing: "border-box", marginBottom: 14,
+  },
+  select: {
+    width: "100%", border: `1px solid ${C.border}`, borderRadius: 6,
+    padding: "9px 12px", fontSize: 13, color: C.text, background: C.white,
+    outline: "none", boxSizing: "border-box", marginBottom: 14,
+  },
+};
+
+const Btn = ({ children, onClick, variant = "primary", full, disabled, small, style = {} }) => {
+  const variants = {
+    primary: { background: C.navy, color: C.white, border: "none" },
+    teal:    { background: C.teal, color: C.white, border: "none" },
+    outline: { background: "transparent", color: C.navy, border: `1.5px solid ${C.navy}` },
+    ghost:   { background: C.grey, color: C.textMid, border: `1px solid ${C.border}` },
+    red:     { background: C.redL, color: C.red, border: `1px solid ${C.red}40` },
+    amber:   { background: C.amberL, color: C.amber, border: `1px solid ${C.amber}40` },
+    white:   { background: "rgba(255,255,255,.1)", color: C.white, border: "1px solid rgba(255,255,255,.3)" },
+  };
+  return (
+    <button onClick={onClick} disabled={disabled} style={{
+      ...variants[variant], borderRadius: 7, cursor: disabled ? "not-allowed" : "pointer",
+      padding: small ? "6px 14px" : "10px 20px", fontSize: small ? 12 : 14,
+      fontWeight: 600, opacity: disabled ? 0.6 : 1, width: full ? "100%" : "auto",
+      transition: "opacity .15s", ...style,
+    }}
+      onMouseEnter={e => { if (!disabled) e.currentTarget.style.opacity = ".85"; }}
+      onMouseLeave={e => { e.currentTarget.style.opacity = "1"; }}>
+      {children}
+    </button>
+  );
+};
+
+const Field = ({ label, type = "text", value, onChange, placeholder, required, options }) => (
+  <div>
+    {label && <label style={s.label}>{label}{required && <span style={{ color: C.red }}> *</span>}</label>}
+    {options ? (
+      <select value={value} onChange={onChange} style={s.select}>
+        <option value="">Select...</option>
+        {options.map(o => <option key={o} value={o}>{o}</option>)}
+      </select>
+    ) : (
+      <input type={type} value={value} onChange={onChange} placeholder={placeholder}
+        style={s.input}
+        onFocus={e => e.target.style.borderColor = C.teal}
+        onBlur={e => e.target.style.borderColor = C.border} />
+    )}
+  </div>
+);
+
+const Alert = ({ type = "info", children }) => {
+  const map = {
+    info:    { bg: C.blueL,  border: C.blue,  color: "#1E40AF" },
+    success: { bg: C.tealL,  border: C.teal,  color: C.tealD },
+    warn:    { bg: C.amberL, border: C.amber, color: "#92400E" },
+    error:   { bg: C.redL,   border: C.red,   color: "#991B1B" },
+  };
+  const m = map[type];
+  return (
+    <div style={{ background: m.bg, border: `1px solid ${m.border}40`, borderLeft: `3px solid ${m.border}`,
+      borderRadius: 6, padding: "10px 14px", fontSize: 13, color: m.color, lineHeight: 1.6, marginBottom: 14 }}>
+      {children}
+    </div>
+  );
+};
+
+const Badge = ({ label, type = "grey" }) => {
+  const map = {
+    open:      { bg: C.blueL,  color: C.blue },
+    filled:    { bg: C.tealL,  color: C.tealD },
+    urgent:    { bg: C.amberL, color: C.amber },
+    emergency: { bg: C.redL,   color: C.red },
+    standard:  { bg: C.grey,   color: C.textMid },
+    pending:   { bg: C.grey,   color: C.textDim },
+    active:    { bg: C.tealL,  color: C.tealD },
+    cancelled: { bg: C.grey,   color: C.textDim },
+    grey:      { bg: C.grey,   color: C.textMid },
+    confirmed: { bg: C.tealL,  color: C.tealD },
+    completed: { bg: C.tealL,  color: C.tealD },
+  };
+  const m = map[type] || map.grey;
+  return (
+    <span style={{ display: "inline-block", background: m.bg, color: m.color, fontSize: 10,
+      fontWeight: 700, padding: "2px 8px", borderRadius: 4, letterSpacing: ".04em",
+      textTransform: "uppercase", whiteSpace: "nowrap" }}>
+      {label}
+    </span>
+  );
+};
+
+const Divider = () => <div style={{ height: 1, background: C.greyMid, margin: "18px 0" }} />;
+
+const Loader = () => (
+  <div style={{ textAlign: "center", padding: "40px 20px", color: C.textDim, fontSize: 14 }}>
+    Loading...
+  </div>
+);
+
+/* ─── SIDEBAR ────────────────────────────────────────────────────────────── */
+const Sidebar = ({ nav, active, setPage, title, onLogout }) => (
+  <div style={{ width: 210, background: C.navy, display: "flex", flexDirection: "column",
+    height: "100vh", position: "fixed", left: 0, top: 0, zIndex: 50, overflowY: "auto" }}>
+    <div style={{ padding: "20px 16px 14px", borderBottom: "1px solid rgba(255,255,255,.08)" }}>
+      <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 17, fontWeight: 700, color: C.white }}>Rosterra Dental</div>
+      <div style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 9, color: "rgba(255,255,255,.4)",
+        letterSpacing: ".1em", textTransform: "uppercase", marginTop: 3 }}>{title}</div>
+    </div>
+    <nav style={{ flex: 1, padding: "10px 8px" }}>
+      {nav.map(({ id, label, icon, badge }) => (
+        <button key={id} onClick={() => setPage(id)} style={{
+          width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "8px 10px", borderRadius: 6, border: "none", marginBottom: 2,
+          background: active === id ? "rgba(255,255,255,.12)" : "transparent",
+          color: active === id ? C.white : "rgba(255,255,255,.55)",
+          fontSize: 13, fontWeight: active === id ? 600 : 400,
+          cursor: "pointer", textAlign: "left", fontFamily: "'IBM Plex Sans',system-ui,sans-serif",
+        }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 9 }}>
+            <span style={{ fontSize: 15 }}>{icon}</span>{label}
+          </span>
+          {badge > 0 && <span style={{ background: C.amber, color: C.white, fontSize: 10,
+            fontWeight: 700, padding: "1px 6px", borderRadius: 10 }}>{badge}</span>}
+        </button>
+      ))}
+    </nav>
+    <div style={{ padding: "12px 14px", borderTop: "1px solid rgba(255,255,255,.08)" }}>
+      <button onClick={onLogout} style={{ background: "none", border: "none", color: "rgba(255,255,255,.4)",
+        fontSize: 12, cursor: "pointer", fontFamily: "'IBM Plex Sans',system-ui,sans-serif" }}>
+        Sign Out →
+      </button>
+    </div>
+  </div>
+);
+
+const MainLayout = ({ title, subtitle, children, sidebarNav, activePage, setPage, onLogout }) => (
+  <div style={{ display: "flex", minHeight: "100vh" }}>
+    <Sidebar nav={sidebarNav} active={activePage} setPage={setPage} title={subtitle} onLogout={onLogout} />
+    <div style={{ marginLeft: 210, flex: 1, padding: "28px 32px 60px", background: C.grey, minHeight: "100vh" }}>
+      <div style={{ marginBottom: 22 }}>
+        <div style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 9, color: C.textDim,
+          letterSpacing: ".12em", textTransform: "uppercase", marginBottom: 4 }}>
+          Rosterra Dental
+        </div>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 24, fontWeight: 700, color: C.navy }}>{title}</div>
+      </div>
+      <div className="fade">{children}</div>
+    </div>
+  </div>
+);
+
+/* ═══════════════════════════════════════════════════════ HOMEPAGE */
+const Homepage = ({ goTo }) => (
+  <div style={{ background: C.white, minHeight: "100vh" }}>
+    {/* NAV */}
+    <nav style={{ position: "sticky", top: 0, zIndex: 50, background: C.white,
+      borderBottom: `1px solid ${C.greyMid}`, height: 60, display: "flex",
+      alignItems: "center", justifyContent: "space-between", padding: "0 40px" }}>
+      <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 20, fontWeight: 700, color: C.navy }}>
+        Rosterra <span style={{ color: C.teal, fontWeight: 400 }}>Dental</span>
+      </div>
+      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+        <Btn variant="ghost" small onClick={() => goTo("login")}>Login</Btn>
+        <Btn variant="teal" small onClick={() => goTo("signup")}>Get Started</Btn>
+      </div>
+    </nav>
+
+    {/* HERO */}
+    <div style={{ background: `linear-gradient(150deg, ${C.navy} 0%, #1A3A6B 100%)`, padding: "90px 40px 72px" }}>
+      <div style={{ maxWidth: 820, margin: "0 auto" }}>
+        <div style={{ display: "inline-block", background: "rgba(14,159,110,.15)",
+          border: "1px solid rgba(14,159,110,.3)", borderRadius: 4, padding: "4px 12px", marginBottom: 24 }}>
+          <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 10, color: C.teal, letterSpacing: ".1em" }}>
+            PRIVATE BETA · NSW
+          </span>
+        </div>
+        <h1 style={{ fontFamily: "'Playfair Display',serif", fontSize: 50, fontWeight: 700,
+          color: C.white, lineHeight: 1.1, letterSpacing: "-.02em", marginBottom: 20, maxWidth: 680 }}>
+          Reliable dental shift cover,{" "}
+          <span style={{ color: C.teal, fontStyle: "italic" }}>without the staffing scramble.</span>
+        </h1>
+        <p style={{ fontSize: 16, color: "rgba(255,255,255,.72)", lineHeight: 1.75, maxWidth: 520, marginBottom: 36 }}>
+          Rosterra Dental helps clinics request temporary receptionists and dental
+          assistants, track confirmations, and work with validated staff — all in one place.
+        </p>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          <Btn variant="teal" onClick={() => goTo("signup_clinic")} style={{ padding: "12px 28px", fontSize: 14 }}>
+            Request Staff Cover
+          </Btn>
+          <Btn variant="white" onClick={() => goTo("signup_candidate")} style={{ padding: "12px 28px", fontSize: 14 }}>
+            Apply for Shifts
+          </Btn>
+        </div>
+      </div>
+    </div>
+
+    {/* HOW IT WORKS */}
+    <div style={{ padding: "64px 40px", background: C.grey }}>
+      <div style={{ maxWidth: 900, margin: "0 auto" }}>
+        <div style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 9, color: C.textDim,
+          letterSpacing: ".12em", textTransform: "uppercase", marginBottom: 10 }}>How It Works</div>
+        <h2 style={{ fontFamily: "'Playfair Display',serif", fontSize: 32, fontWeight: 700,
+          color: C.navy, marginBottom: 36, letterSpacing: "-.02em" }}>
+          Four steps to reliable cover.
+        </h2>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 14 }}>
+          {[
+            ["01", "Submit Request", "Clinic submits a shift request in under 2 minutes."],
+            ["02", "Candidates Notified", "Matched dental professionals receive an email instantly."],
+            ["03", "Shift Accepted", "First candidate to accept claims the shift. It closes automatically."],
+            ["04", "Attendance Tracked", "Digital check-in, check-out, and timesheet in one place."],
+          ].map(([n, t, d]) => (
+            <div key={n} style={{ ...s.card }}>
+              <div style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 11, color: C.teal, marginBottom: 8 }}>{n}</div>
+              <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 16, fontWeight: 600,
+                color: C.navy, marginBottom: 6 }}>{t}</div>
+              <div style={{ fontSize: 12, color: C.textMid, lineHeight: 1.6 }}>{d}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+
+    {/* FOOTER */}
+    <div style={{ background: C.navy, padding: "32px 40px", display: "flex",
+      justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+      <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 16, fontWeight: 700, color: C.white }}>
+        Rosterra Dental
+      </div>
+      <div style={{ fontSize: 11, color: "rgba(255,255,255,.3)", maxWidth: 500 }}>
+        Staffing coordination platform. Availability subject to operational workflows and candidate acceptance.
+        Private beta — legal review required before public paid launch.
+      </div>
+      <div style={{ display: "flex", gap: 16 }}>
+        <span style={{ color: "rgba(255,255,255,.5)", fontSize: 12, cursor: "pointer" }} onClick={() => goTo("login")}>Login</span>
+        <span style={{ color: "rgba(255,255,255,.5)", fontSize: 12, cursor: "pointer" }} onClick={() => goTo("signup")}>Register</span>
+      </div>
+    </div>
+  </div>
+);
+
+/* ═══════════════════════════════════════════════════════ LOGIN */
+const Login = ({ goTo, onLogin }) => {
+  const [email, setEmail] = useState("");
+  const [pass, setPass] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleLogin = async () => {
+    if (!email || !pass) { setError("Please enter email and password."); return; }
+    setLoading(true); setError("");
+    try {
+      if (!API_URL) throw new Error("NO_API_URL");
+      const res = await callApi("login", { email: email.trim().toLowerCase(), password: simpleHash(pass) });
+      if (res.error) { setError(res.error); return; }
+      setSession(res.user);
+      onLogin(res.user);
+    } catch (e) {
+      if (e.message === "NO_API_URL") {
+        setError("Google Sheets not connected. Set API_URL in the code first.");
+      } else {
+        setError("Login failed: " + e.message);
+      }
+    } finally { setLoading(false); }
+  };
+
+  return (
+    <div style={{ minHeight: "100vh", background: `linear-gradient(150deg,${C.navy},#1A3A6B)`,
+      display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div style={{ width: "100%", maxWidth: 420 }}>
+        <div style={{ textAlign: "center", marginBottom: 28 }}>
+          <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 24, fontWeight: 700, color: C.white }}>
+            Rosterra <span style={{ color: C.teal }}>Dental</span>
+          </div>
+          <div style={{ fontSize: 13, color: "rgba(255,255,255,.5)", marginTop: 5 }}>Sign in to your account</div>
+        </div>
+        <div style={{ ...s.card, padding: "30px 26px" }}>
+          {error && <Alert type="error">{error}</Alert>}
+          <Field label="Email Address" type="email" value={email} onChange={e => setEmail(e.target.value)} required />
+          <Field label="Password" type="password" value={pass} onChange={e => setPass(e.target.value)} required />
+          <Btn variant="teal" full disabled={loading} onClick={handleLogin}>
+            {loading ? "Signing in..." : "Sign In"}
+          </Btn>
+          <Divider />
+          <div style={{ textAlign: "center", fontSize: 13, color: C.textMid }}>
+            No account?{" "}
+            <span style={{ color: C.navy, fontWeight: 600, cursor: "pointer" }} onClick={() => goTo("signup")}>
+              Register here
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* ═══════════════════════════════════════════════════════ SIGNUP CHOOSE */
+const SignupChoose = ({ goTo }) => (
+  <div style={{ minHeight: "100vh", background: `linear-gradient(150deg,${C.navy},#1A3A6B)`,
+    display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+    <div style={{ width: "100%", maxWidth: 520 }}>
+      <div style={{ textAlign: "center", marginBottom: 28 }}>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 24, fontWeight: 700, color: C.white }}>
+          Join Rosterra <span style={{ color: C.teal }}>Dental</span>
+        </div>
+        <div style={{ fontSize: 13, color: "rgba(255,255,255,.5)", marginTop: 5 }}>Who are you registering as?</div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+        {[
+          { t: "signup_clinic", icon: "🏥", title: "Clinic / Practice", desc: "I need to request dental staff cover for my practice" },
+          { t: "signup_candidate", icon: "🦷", title: "Dental Staff", desc: "I am a dental professional seeking shifts" },
+        ].map(o => (
+          <div key={o.t} onClick={() => goTo(o.t)} style={{
+            ...s.card, cursor: "pointer", textAlign: "center", padding: "32px 20px",
+            border: `2px solid ${C.greyMid}`, transition: "border-color .15s",
+          }}
+            onMouseEnter={e => e.currentTarget.style.borderColor = C.teal}
+            onMouseLeave={e => e.currentTarget.style.borderColor = C.greyMid}>
+            <div style={{ fontSize: 36, marginBottom: 12 }}>{o.icon}</div>
+            <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 17, fontWeight: 700, color: C.navy, marginBottom: 6 }}>{o.title}</div>
+            <div style={{ fontSize: 12, color: C.textMid, lineHeight: 1.6 }}>{o.desc}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ textAlign: "center", marginTop: 16, fontSize: 13, color: "rgba(255,255,255,.4)" }}>
+        Already registered?{" "}
+        <span style={{ color: C.teal, cursor: "pointer" }} onClick={() => goTo("login")}>Sign in</span>
+      </div>
+    </div>
+  </div>
+);
+
+/* ═══════════════════════════════════════════════════════ SIGNUP CLINIC */
+const SignupClinic = ({ goTo, onLogin }) => {
+  const [step, setStep] = useState(1);
+  const [form, setForm] = useState({
+    clinic_name: "", contact_name: "", phone: "", email: "",
+    suburb: "", state: "", practice_type: "", pms_system: "", staffing_needs: "",
+    password: "", password2: "",
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
+
+  const submit = async () => {
+    if (form.password !== form.password2) { setError("Passwords do not match."); return; }
+    if (form.password.length < 6) { setError("Password must be at least 6 characters."); return; }
+    setLoading(true); setError("");
+    try {
+      if (!API_URL) throw new Error("NO_API_URL");
+      const res = await callApi("register_clinic", {
+        email: form.email.trim().toLowerCase(),
+        password: simpleHash(form.password),
+        full_name: form.contact_name,
+        phone: form.phone,
+        clinic_name: form.clinic_name,
+        contact_name: form.contact_name,
+        suburb: form.suburb,
+        state: form.state,
+        practice_type: form.practice_type,
+        pms_system: form.pms_system,
+        staffing_needs: form.staffing_needs,
+      });
+      if (res.error) { setError(res.error); return; }
+      setSession(res.user);
+      onLogin(res.user);
+    } catch (e) {
+      if (e.message === "NO_API_URL") setError("Google Sheets not connected. Add your API_URL to the code.");
+      else setError(e.message);
+    } finally { setLoading(false); }
+  };
+
+  const states = ["NSW","VIC","QLD","SA","WA","ACT","TAS","NT"];
+  const ptypes = ["General Practice","Specialist","Mixed Practice","Community Dental"];
+  const pms = ["Dentrix","Exact","Dental4Windows","Pracsoft","Oasis","Other"];
+  const needs = ["Dental Assistants","Receptionists","Both"];
+
+  return (
+    <div style={{ minHeight: "100vh", background: C.grey, padding: "40px 20px" }}>
+      <div style={{ maxWidth: 560, margin: "0 auto" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 6 }}>
+          <span style={{ cursor: "pointer", color: C.textMid, fontSize: 13 }} onClick={() => goTo("signup")}>← Back</span>
+        </div>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 24, fontWeight: 700, color: C.navy, marginBottom: 4 }}>
+          Clinic Registration
+        </div>
+        <div style={{ fontSize: 13, color: C.textMid, marginBottom: 8 }}>Register your practice on Rosterra Dental.</div>
+        <Alert type="info">
+          Your account will be activated after review. You can then post shifts and receive matched candidates.
+        </Alert>
+        {/* Step progress */}
+        <div style={{ display: "flex", gap: 6, marginBottom: 22 }}>
+          {[1, 2].map(n => (
+            <div key={n} style={{ flex: 1, height: 4, borderRadius: 2,
+              background: n <= step ? C.teal : C.greyMid, transition: "background .3s" }} />
+          ))}
+        </div>
+        <div style={{ ...s.card, padding: "26px 24px" }}>
+          {error && <Alert type="error">{error}</Alert>}
+          {step === 1 && (
+            <>
+              <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 17, fontWeight: 700, color: C.navy, marginBottom: 16 }}>
+                Practice Details
+              </div>
+              <Field label="Clinic Name" value={form.clinic_name} onChange={set("clinic_name")} placeholder="Gosford Dental Centre" required />
+              <Field label="Contact Name" value={form.contact_name} onChange={set("contact_name")} placeholder="Dr. Sarah Lee" required />
+              <Field label="Phone" type="tel" value={form.phone} onChange={set("phone")} placeholder="02 4xxx xxxx" required />
+              <Field label="Email" type="email" value={form.email} onChange={set("email")} placeholder="hello@clinic.com.au" required />
+              <Field label="Suburb" value={form.suburb} onChange={set("suburb")} placeholder="Gosford" required />
+              <Field label="State" value={form.state} onChange={set("state")} options={states} required />
+              <Field label="Practice Type" value={form.practice_type} onChange={set("practice_type")} options={ptypes} />
+              <Field label="PMS System" value={form.pms_system} onChange={set("pms_system")} options={pms} />
+              <Field label="Primary Staffing Need" value={form.staffing_needs} onChange={set("staffing_needs")} options={needs} />
+              <Btn variant="teal" full onClick={() => {
+                if (!form.clinic_name || !form.email || !form.suburb) { setError("Please fill in required fields."); return; }
+                setError(""); setStep(2);
+              }}>Continue →</Btn>
+            </>
+          )}
+          {step === 2 && (
+            <>
+              <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 17, fontWeight: 700, color: C.navy, marginBottom: 16 }}>
+                Create Account
+              </div>
+              <div style={{ background: C.grey, borderRadius: 6, padding: "10px 12px", fontSize: 12,
+                color: C.textMid, marginBottom: 14 }}>
+                Signing up as: <strong style={{ color: C.navy }}>{form.contact_name} — {form.clinic_name}</strong>
+              </div>
+              <Field label="Email" type="email" value={form.email} onChange={set("email")} />
+              <Field label="Password" type="password" value={form.password} onChange={set("password")} placeholder="Min 6 characters" required />
+              <Field label="Confirm Password" type="password" value={form.password2} onChange={set("password2")} placeholder="Re-enter password" required />
+              <div style={{ display: "flex", gap: 10 }}>
+                <Btn variant="ghost" onClick={() => { setError(""); setStep(1); }}>← Back</Btn>
+                <Btn variant="teal" style={{ flex: 1 }} disabled={loading} onClick={submit}>
+                  {loading ? "Creating account..." : "Create Account"}
+                </Btn>
+              </div>
+            </>
+          )}
+        </div>
+        <div style={{ textAlign: "center", marginTop: 14, fontSize: 13, color: C.textMid }}>
+          Already registered?{" "}
+          <span style={{ color: C.navy, fontWeight: 600, cursor: "pointer" }} onClick={() => goTo("login")}>Sign in</span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* ═══════════════════════════════════════════════════════ SIGNUP CANDIDATE */
+const SignupCandidate = ({ goTo, onLogin }) => {
+  const [form, setForm] = useState({
+    full_name: "", phone: "", email: "", suburb: "", state: "",
+    role_type: "", years_experience: "", pms_experience: "",
+    preferred_rate: "", travel_radius: "20 km", password: "", password2: "",
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
+
+  const submit = async () => {
+    if (!form.full_name || !form.email || !form.role_type) { setError("Please fill in all required fields."); return; }
+    if (form.password !== form.password2) { setError("Passwords do not match."); return; }
+    if (form.password.length < 6) { setError("Password must be at least 6 characters."); return; }
+    setLoading(true); setError("");
+    try {
+      if (!API_URL) throw new Error("NO_API_URL");
+      const res = await callApi("register_candidate", {
+        email: form.email.trim().toLowerCase(),
+        password: simpleHash(form.password),
+        full_name: form.full_name,
+        phone: form.phone,
+        suburb: form.suburb,
+        state: form.state,
+        role_type: form.role_type,
+        years_experience: form.years_experience,
+        pms_experience: form.pms_experience,
+        preferred_rate: form.preferred_rate,
+        travel_radius: form.travel_radius,
+      });
+      if (res.error) { setError(res.error); return; }
+      setSession(res.user);
+      onLogin(res.user);
+    } catch (e) {
+      if (e.message === "NO_API_URL") setError("Google Sheets not connected. Add your API_URL to the code.");
+      else setError(e.message);
+    } finally { setLoading(false); }
+  };
+
+  const states = ["NSW","VIC","QLD","SA","WA","ACT","TAS","NT"];
+  const roles = ["Dental Assistant","Receptionist"];
+  const experience = ["Less than 1 year","1–2 years","3–5 years","5–8 years","8+ years"];
+  const radius = ["10 km","20 km","30 km","50 km","Any"];
+
+  return (
+    <div style={{ minHeight: "100vh", background: C.grey, padding: "40px 20px" }}>
+      <div style={{ maxWidth: 560, margin: "0 auto" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 6 }}>
+          <span style={{ cursor: "pointer", color: C.textMid, fontSize: 13 }} onClick={() => goTo("signup")}>← Back</span>
+        </div>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 24, fontWeight: 700, color: C.navy, marginBottom: 4 }}>
+          Dental Staff Registration
+        </div>
+        <div style={{ fontSize: 13, color: C.textMid, marginBottom: 8 }}>Apply to join our verified dental professional pool.</div>
+        <Alert type="info">
+          Your application will be reviewed. You'll receive an email when your account is activated and you can accept shifts.
+        </Alert>
+        <div style={{ ...s.card, padding: "26px 24px" }}>
+          {error && <Alert type="error">{error}</Alert>}
+          <Field label="Full Name" value={form.full_name} onChange={set("full_name")} placeholder="Sarah Mitchell" required />
+          <Field label="Phone" type="tel" value={form.phone} onChange={set("phone")} placeholder="04xx xxx xxx" required />
+          <Field label="Email" type="email" value={form.email} onChange={set("email")} placeholder="sarah@example.com" required />
+          <Field label="Password" type="password" value={form.password} onChange={set("password")} placeholder="Min 6 characters" required />
+          <Field label="Confirm Password" type="password" value={form.password2} onChange={set("password2")} required />
+          <Divider />
+          <Field label="Suburb" value={form.suburb} onChange={set("suburb")} placeholder="Gosford" required />
+          <Field label="State" value={form.state} onChange={set("state")} options={states} required />
+          <Field label="Travel Radius" value={form.travel_radius} onChange={set("travel_radius")} options={radius} />
+          <Field label="Role Type" value={form.role_type} onChange={set("role_type")} options={roles} required />
+          <Field label="Years Experience" value={form.years_experience} onChange={set("years_experience")} options={experience} />
+          <Field label="PMS Software (type all that apply)" value={form.pms_experience} onChange={set("pms_experience")} placeholder="e.g. Dentrix, Exact" />
+          <Field label="Preferred Hourly Rate (AUD)" type="number" value={form.preferred_rate} onChange={set("preferred_rate")} placeholder="45" />
+          <Btn variant="teal" full disabled={loading} onClick={submit}>
+            {loading ? "Creating account..." : "Create Account"}
+          </Btn>
+        </div>
+        <div style={{ textAlign: "center", marginTop: 14, fontSize: 13, color: C.textMid }}>
+          Already registered?{" "}
+          <span style={{ color: C.navy, fontWeight: 600, cursor: "pointer" }} onClick={() => goTo("login")}>Sign in</span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* ═══════════════════════════════════════════════════════ CLINIC DASHBOARD */
+const ClinicDashboard = ({ user, onLogout }) => {
+  const [page, setPage] = useState("overview");
+  const [shifts, setShifts] = useState([]);
+  const [loadingShifts, setLoadingShifts] = useState(false);
+
+  const loadShifts = useCallback(async () => {
+    setLoadingShifts(true);
+    try {
+      const res = await callApi("get_clinic_shifts", { clinic_id: user.entity_id });
+      if (res.shifts) setShifts(res.shifts);
+    } catch (e) { console.error(e); }
+    finally { setLoadingShifts(false); }
+  }, [user.entity_id]);
+
+  useEffect(() => { loadShifts(); }, [loadShifts]);
+
+  const nav = [
+    { id: "overview", label: "Dashboard", icon: "⬛" },
+    { id: "post_shift", label: "Post a Shift", icon: "➕" },
+    { id: "shifts", label: "My Shifts", icon: "📅" },
+    { id: "confirm", label: "Confirm Hours", icon: "✅",
+      badge: shifts.filter(s => s.candidate_submitted === "TRUE" && s.clinic_confirmed !== "TRUE").length },
+  ];
+
+  const pendingConfirm = shifts.filter(s => s.candidate_submitted === "TRUE" && s.clinic_confirmed !== "TRUE");
+  const open = shifts.filter(s => s.status === "Open");
+  const filled = shifts.filter(s => s.status === "Filled");
+
+  return (
+    <MainLayout title={user.clinic_name || "Clinic Portal"} subtitle="Clinic Portal"
+      sidebarNav={nav} activePage={page} setPage={setPage} onLogout={onLogout}>
+      {page === "overview" && (
+        <div>
+          {user.account_status === "pending" && (
+            <Alert type="warn">
+              Your account is pending review. You can set up your profile but shift posting will be enabled once activated.
+            </Alert>
+          )}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 12, marginBottom: 24 }}>
+            {[
+              { label: "Open Shifts", value: open.length, color: C.blue },
+              { label: "Filled Shifts", value: filled.length, color: C.teal },
+              { label: "Total Posted", value: shifts.length, color: C.navy },
+              { label: "Awaiting Confirmation", value: pendingConfirm.length, color: C.amber },
+            ].map(k => (
+              <div key={k.label} style={{ ...s.card }}>
+                <div style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 28, fontWeight: 500,
+                  color: k.color, lineHeight: 1, marginBottom: 5 }}>{k.value}</div>
+                <div style={{ fontSize: 12, color: C.textMid }}>{k.label}</div>
+              </div>
+            ))}
+          </div>
+          {loadingShifts ? <Loader /> : (
+            <>
+              <div style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 9, color: C.textDim,
+                letterSpacing: ".1em", textTransform: "uppercase", marginBottom: 12 }}>Recent Shifts</div>
+              {shifts.length === 0 ? (
+                <div style={{ ...s.card, textAlign: "center", padding: "40px 20px" }}>
+                  <div style={{ fontSize: 14, color: C.textMid, marginBottom: 14 }}>No shifts posted yet.</div>
+                  <Btn variant="teal" onClick={() => setPage("post_shift")}>Post Your First Shift →</Btn>
+                </div>
+              ) : shifts.slice(0, 5).map(sh => (
+                <div key={sh.id} style={{ ...s.card, marginBottom: 8, display: "flex",
+                  alignItems: "center", justifyContent: "space-between",
+                  borderLeft: `3px solid ${sh.status === "Filled" ? C.teal : sh.status === "Open" ? C.blue : C.greyMid}` }}>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: C.navy }}>{sh.role_required}</div>
+                    <div style={{ fontSize: 12, color: C.textMid }}>{sh.shift_date} · {sh.start_time}–{sh.end_time} · {sh.suburb}</div>
+                    {sh.confirmed_candidate_name && (
+                      <div style={{ fontSize: 12, color: C.teal, marginTop: 3 }}>✓ {sh.confirmed_candidate_name}</div>
+                    )}
+                  </div>
+                  <Badge label={sh.status} type={sh.status.toLowerCase()} />
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+      {page === "post_shift" && <PostShift user={user} onSuccess={() => { setPage("shifts"); loadShifts(); }} />}
+      {page === "shifts" && <ClinicShiftsList shifts={shifts} loading={loadingShifts} onRefresh={loadShifts} />}
+      {page === "confirm" && <ConfirmHours user={user} shifts={shifts} onRefresh={loadShifts} />}
+    </MainLayout>
+  );
+};
+
+/* ─── POST SHIFT ─────────────────────────────────────────────────────────── */
+const PostShift = ({ user, onSuccess }) => {
+  const [step, setStep] = useState(1);
+  const [form, setForm] = useState({
+    role_required: "", shift_date: "", start_time: "", end_time: "",
+    suburb: user.suburb || "", state: user.state || "", urgency: "Standard",
+    pms_required: "", notes: "",
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
+  const pms = ["Dentrix","Exact","Dental4Windows","Pracsoft","Oasis","Any"];
+
+  const submit = async () => {
+    setLoading(true); setError("");
+    try {
+      const hrs = form.start_time && form.end_time
+        ? (new Date(`2000-01-01T${form.end_time}`) - new Date(`2000-01-01T${form.start_time}`)) / 3600000
+        : 0;
+      const res = await callApi("post_shift", {
+        clinic_id: user.entity_id,
+        clinic_name: user.clinic_name,
+        clinic_email: user.email,
+        ...form,
+        estimated_hours: hrs,
+        app_url: window.location.origin,
+      });
+      if (res.error) { setError(res.error); return; }
+      onSuccess();
+    } catch (e) { setError(e.message); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <div style={{ maxWidth: 540 }}>
+      <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 20, fontWeight: 700, color: C.navy, marginBottom: 20 }}>
+        Post a Shift
+      </div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 22 }}>
+        {[1, 2, 3].map(n => (
+          <div key={n} style={{ flex: 1, height: 4, borderRadius: 2,
+            background: n <= step ? C.teal : C.greyMid, transition: "background .3s" }} />
+        ))}
+      </div>
+      <div style={{ ...s.card, padding: "26px 24px" }}>
+        {error && <Alert type="error">{error}</Alert>}
+        {step === 1 && (
+          <>
+            <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 16, fontWeight: 700, color: C.navy, marginBottom: 16 }}>
+              What role do you need?
+            </div>
+            {["Dental Assistant", "Receptionist"].map(role => (
+              <div key={role} onClick={() => { setForm(f => ({ ...f, role_required: role })); setStep(2); }}
+                style={{
+                  border: `2px solid ${form.role_required === role ? C.teal : C.border}`,
+                  borderRadius: 8, padding: "16px 18px", marginBottom: 10, cursor: "pointer",
+                  background: form.role_required === role ? C.tealL : C.white,
+                  display: "flex", justifyContent: "space-between", alignItems: "center",
+                  fontSize: 14, fontWeight: 600, color: C.navy, transition: "all .15s",
+                }}>
+                {role} <span style={{ color: C.textDim }}>→</span>
+              </div>
+            ))}
+          </>
+        )}
+        {step === 2 && (
+          <>
+            <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 16, fontWeight: 700, color: C.navy, marginBottom: 16 }}>
+              When and where?
+            </div>
+            <Field label="Shift Date" type="date" value={form.shift_date} onChange={set("shift_date")} required />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <Field label="Start Time" type="time" value={form.start_time} onChange={set("start_time")} required />
+              <Field label="End Time" type="time" value={form.end_time} onChange={set("end_time")} required />
+            </div>
+            <Field label="Suburb" value={form.suburb} onChange={set("suburb")} required />
+            <Field label="PMS Required" value={form.pms_required} onChange={set("pms_required")} options={pms} />
+            <div style={{ marginBottom: 14 }}>
+              <label style={s.label}>Urgency</label>
+              <div style={{ display: "flex", gap: 8 }}>
+                {["Standard","Urgent","Emergency"].map(u => (
+                  <div key={u} onClick={() => setForm(f => ({ ...f, urgency: u }))}
+                    style={{ flex: 1, padding: "9px 10px", borderRadius: 6, cursor: "pointer", textAlign: "center",
+                      border: `1.5px solid ${form.urgency === u ? (u === "Emergency" ? C.red : u === "Urgent" ? C.amber : C.teal) : C.border}`,
+                      background: form.urgency === u ? (u === "Emergency" ? C.redL : u === "Urgent" ? C.amberL : C.tealL) : C.white,
+                      fontSize: 12, fontWeight: 600,
+                      color: form.urgency === u ? (u === "Emergency" ? C.red : u === "Urgent" ? C.amber : C.tealD) : C.textMid,
+                    }}>
+                    {u}
+                  </div>
+                ))}
+              </div>
+            </div>
+            <Field label="Notes for candidates (optional)" value={form.notes} onChange={set("notes")} placeholder="Any special requirements..." />
+            <div style={{ display: "flex", gap: 10 }}>
+              <Btn variant="ghost" onClick={() => setStep(1)}>← Back</Btn>
+              <Btn variant="teal" style={{ flex: 1 }} onClick={() => {
+                if (!form.shift_date || !form.start_time || !form.end_time) { setError("Please fill in date and times."); return; }
+                setError(""); setStep(3);
+              }}>Continue →</Btn>
+            </div>
+          </>
+        )}
+        {step === 3 && (
+          <>
+            <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 16, fontWeight: 700, color: C.navy, marginBottom: 16 }}>
+              Review and Post
+            </div>
+            {[["Role", form.role_required], ["Date", form.shift_date], ["Time", `${form.start_time} – ${form.end_time}`],
+              ["Suburb", form.suburb], ["PMS", form.pms_required || "Any"], ["Urgency", form.urgency],
+            ].map(([k, v]) => (
+              <div key={k} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0",
+                borderBottom: `1px solid ${C.greyMid}`, fontSize: 13 }}>
+                <span style={{ color: C.textMid }}>{k}</span>
+                <span style={{ fontWeight: 600, color: C.text }}>{v}</span>
+              </div>
+            ))}
+            <Alert type="info" style={{ marginTop: 14 }}>
+              All active candidates matching this role and state will be notified by email immediately.
+              The shift closes as soon as the first candidate accepts.
+            </Alert>
+            <div style={{ display: "flex", gap: 10, marginTop: 6 }}>
+              <Btn variant="ghost" onClick={() => setStep(2)}>← Back</Btn>
+              <Btn variant="teal" style={{ flex: 1 }} disabled={loading} onClick={submit}>
+                {loading ? "Posting shift..." : "Post Shift"}
+              </Btn>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
+/* ─── CLINIC SHIFTS LIST ─────────────────────────────────────────────────── */
+const ClinicShiftsList = ({ shifts, loading, onRefresh }) => (
+  <div>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+      <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 20, fontWeight: 700, color: C.navy }}>My Shifts</div>
+      <Btn variant="ghost" small onClick={onRefresh}>↻ Refresh</Btn>
+    </div>
+    {loading ? <Loader /> : shifts.length === 0 ? (
+      <div style={{ ...s.card, textAlign: "center", padding: "40px 20px", color: C.textMid }}>No shifts posted yet.</div>
+    ) : shifts.map(sh => (
+      <div key={sh.id} style={{ ...s.card, marginBottom: 10,
+        borderLeft: `3px solid ${sh.status === "Filled" ? C.teal : sh.status === "Open" ? C.blue : C.greyMid}` }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+              <span style={{ fontFamily: "'Playfair Display',serif", fontSize: 15, fontWeight: 700, color: C.navy }}>
+                {sh.role_required}
+              </span>
+              <Badge label={sh.status} type={sh.status.toLowerCase()} />
+              {sh.urgency !== "Standard" && <Badge label={sh.urgency} type={sh.urgency.toLowerCase()} />}
+            </div>
+            <div style={{ fontSize: 12, color: C.textMid }}>{sh.shift_date} · {sh.start_time}–{sh.end_time} · {sh.suburb}</div>
+            {sh.confirmed_candidate_name && (
+              <div style={{ fontSize: 12, color: C.teal, marginTop: 4, fontWeight: 500 }}>
+                ✓ Confirmed: {sh.confirmed_candidate_name}
+              </div>
+            )}
+            {sh.candidate_submitted === "TRUE" && sh.clinic_confirmed !== "TRUE" && (
+              <div style={{ fontSize: 11, color: C.amber, marginTop: 3, fontWeight: 600 }}>
+                ⏳ Timesheet awaiting your confirmation
+              </div>
+            )}
+          </div>
+        </div>
+        {sh.notes && (
+          <div style={{ fontSize: 12, color: C.textMid, marginTop: 8, fontStyle: "italic" }}>{sh.notes}</div>
+        )}
+      </div>
+    ))}
+  </div>
+);
+
+/* ─── CONFIRM HOURS ──────────────────────────────────────────────────────── */
+const ConfirmHours = ({ shifts, onRefresh }) => {
+  const [loading, setLoading] = useState({});
+  const [msg, setMsg] = useState({});
+
+  const pending = shifts.filter(s => s.candidate_submitted === "TRUE" && s.clinic_confirmed !== "TRUE");
+
+  const confirm = async (shiftId) => {
+    setLoading(l => ({ ...l, [shiftId]: true }));
+    try {
+      const res = await callApi("confirm_hours", { shift_id: shiftId });
+      if (res.error) { setMsg(m => ({ ...m, [shiftId]: res.error })); return; }
+      setMsg(m => ({ ...m, [shiftId]: "✓ Hours confirmed." }));
+      onRefresh();
+    } catch (e) { setMsg(m => ({ ...m, [shiftId]: e.message })); }
+    finally { setLoading(l => ({ ...l, [shiftId]: false })); }
+  };
+
+  return (
+    <div>
+      <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 20, fontWeight: 700, color: C.navy, marginBottom: 16 }}>
+        Confirm Hours
+      </div>
+      {pending.length === 0 ? (
+        <div style={{ ...s.card, textAlign: "center", padding: "40px 20px", color: C.textMid }}>
+          No timesheets awaiting confirmation.
+        </div>
+      ) : pending.map(sh => (
+        <div key={sh.id} style={{ ...s.card, marginBottom: 12 }}>
+          <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 15, fontWeight: 700, color: C.navy, marginBottom: 4 }}>
+            {sh.confirmed_candidate_name} · {sh.role_required}
+          </div>
+          <div style={{ fontSize: 12, color: C.textMid, marginBottom: 12 }}>{sh.shift_date} · {sh.start_time}–{sh.end_time}</div>
+          {[["Check In", sh.check_in_time], ["Check Out", sh.check_out_time],
+            ["Break", sh.break_minutes ? sh.break_minutes + " min" : "0 min"],
+            ["Total Paid Hours", sh.total_paid_hours ? sh.total_paid_hours + " hrs" : "—"],
+          ].map(([k, v]) => (
+            <div key={k} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0",
+              borderBottom: `1px solid ${C.greyMid}`, fontSize: 12 }}>
+              <span style={{ color: C.textMid }}>{k}</span>
+              <span style={{ fontWeight: 600, color: C.text }}>{v || "—"}</span>
+            </div>
+          ))}
+          {msg[sh.id] && <Alert type={msg[sh.id].startsWith("✓") ? "success" : "error"} style={{ marginTop: 10 }}>{msg[sh.id]}</Alert>}
+          <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+            <Btn variant="teal" disabled={loading[sh.id]} onClick={() => confirm(sh.id)}>
+              {loading[sh.id] ? "Confirming..." : "✓ Approve Hours"}
+            </Btn>
+            <Btn variant="red">Dispute</Btn>
+          </div>
+          <Alert type="warn">
+            Pricing and payment terms are subject to final legal and commercial review.
+          </Alert>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+/* ═══════════════════════════════════════════════════════ CANDIDATE DASHBOARD */
+const CandidateDashboard = ({ user, onLogout }) => {
+  const [page, setPage] = useState("overview");
+  const [assignments, setAssignments] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  const loadAssignments = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await callApi("get_assignments", { candidate_id: user.entity_id });
+      if (res.assignments) setAssignments(res.assignments);
+    } catch (e) { console.error(e); }
+    finally { setLoading(false); }
+  }, [user.entity_id]);
+
+  useEffect(() => { loadAssignments(); }, [loadAssignments]);
+
+  const nav = [
+    { id: "overview", label: "Dashboard", icon: "⬛" },
+    { id: "shifts", label: "Available Shifts", icon: "🔍" },
+    { id: "assignments", label: "My Assignments", icon: "📋" },
+    { id: "profile", label: "My Profile", icon: "👤" },
+  ];
+
+  const upcoming = assignments.filter(a => a.status === "Confirmed" || a.status === "Checked In");
+
+  return (
+    <MainLayout title={user.full_name || "Staff Portal"} subtitle="Staff Portal"
+      sidebarNav={nav} activePage={page} setPage={setPage} onLogout={onLogout}>
+      {page === "overview" && (
+        <div>
+          {user.account_status === "pending" && (
+            <Alert type="warn">
+              Your application is under review. You will receive an email when your account is activated
+              and you can begin accepting shifts.
+            </Alert>
+          )}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 12, marginBottom: 24 }}>
+            {[
+              { label: "Reliability Score", value: user.reliability_score || 85, color: C.teal },
+              { label: "Shifts Completed", value: user.shifts_completed || 0, color: C.navy },
+              { label: "Active Assignments", value: upcoming.length, color: C.blue },
+              { label: "Account Status", value: user.account_status, color: user.account_status === "active" ? C.teal : C.amber },
+            ].map(k => (
+              <div key={k.label} style={{ ...s.card }}>
+                <div style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: k.label === "Account Status" ? 14 : 28,
+                  fontWeight: 500, color: k.color, lineHeight: 1, marginBottom: 5 }}>{k.value}</div>
+                <div style={{ fontSize: 12, color: C.textMid }}>{k.label}</div>
+              </div>
+            ))}
+          </div>
+          {user.account_status === "active" && (
+            <div style={{ ...s.card, cursor: "pointer", marginBottom: 12 }} onClick={() => setPage("shifts")}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: C.navy }}>🔍 View Available Shifts</div>
+                  <div style={{ fontSize: 12, color: C.textMid, marginTop: 2 }}>Find and accept matching shifts in your area</div>
+                </div>
+                <span style={{ color: C.textDim, fontSize: 18 }}>→</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+      {page === "shifts" && <AvailableShifts user={user} onAccepted={loadAssignments} />}
+      {page === "assignments" && <CandidateAssignments assignments={assignments} loading={loading} onRefresh={loadAssignments} />}
+      {page === "profile" && <CandidateProfile user={user} />}
+    </MainLayout>
+  );
+};
+
+/* ─── AVAILABLE SHIFTS ───────────────────────────────────────────────────── */
+const AvailableShifts = ({ user, onAccepted }) => {
+  const [shifts, setShifts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [accepting, setAccepting] = useState({});
+  const [msg, setMsg] = useState({});
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const res = await callApi("get_open_shifts", {
+          role_type: user.role_type,
+          state: user.state,
+        });
+        if (res.shifts) setShifts(res.shifts);
+      } catch (e) { console.error(e); }
+      finally { setLoading(false); }
+    };
+    load();
+  }, [user.role_type, user.state]);
+
+  if (user.account_status !== "active") return (
+    <Alert type="warn">Your account must be activated before you can view or accept shifts.</Alert>
+  );
+
+  const accept = async (sh) => {
+    setAccepting(a => ({ ...a, [sh.id]: true }));
+    try {
+      const res = await callApi("accept_shift", {
+        shift_id: sh.id,
+        candidate_id: user.entity_id,
+        candidate_name: user.full_name,
+        candidate_email: user.email,
+        clinic_email: sh.clinic_email,
+        app_url: window.location.origin,
+      });
+      if (res.error) { setMsg(m => ({ ...m, [sh.id]: res.error })); return; }
+      setMsg(m => ({ ...m, [sh.id]: "✓ Shift accepted! Check My Assignments." }));
+      setShifts(s => s.filter(x => x.id !== sh.id));
+      onAccepted();
+    } catch (e) { setMsg(m => ({ ...m, [sh.id]: e.message })); }
+    finally { setAccepting(a => ({ ...a, [sh.id]: false })); }
+  };
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 20, fontWeight: 700, color: C.navy }}>Available Shifts</div>
+        <div style={{ fontSize: 12, color: C.textMid }}>Showing {user.role_type} shifts · {user.state}</div>
+      </div>
+      {loading ? <Loader /> : shifts.length === 0 ? (
+        <div style={{ ...s.card, textAlign: "center", padding: "40px 20px" }}>
+          <div style={{ fontSize: 14, color: C.textMid }}>No matching shifts available right now.</div>
+          <div style={{ fontSize: 12, color: C.textDim, marginTop: 6 }}>
+            You will receive an email as soon as a matching shift is posted.
+          </div>
+        </div>
+      ) : shifts.map(sh => (
+        <div key={sh.id} style={{ ...s.card, marginBottom: 12,
+          borderLeft: `3px solid ${sh.urgency === "Emergency" ? C.red : sh.urgency === "Urgent" ? C.amber : C.teal}` }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+            <div>
+              {sh.urgency !== "Standard" && (
+                <div style={{ marginBottom: 6 }}><Badge label={sh.urgency} type={sh.urgency.toLowerCase()} /></div>
+              )}
+              <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 16, fontWeight: 700, color: C.navy }}>{sh.role_required}</div>
+              <div style={{ fontSize: 12, color: C.textMid, marginTop: 2 }}>{sh.suburb}, {sh.state}</div>
+            </div>
+            <Badge label="Open" type="open" />
+          </div>
+          {[["Date", sh.shift_date], ["Time", `${sh.start_time} – ${sh.end_time}`],
+            ["PMS Required", sh.pms_required || "Any"],
+          ].map(([k, v]) => (
+            <div key={k} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0",
+              borderBottom: `1px solid ${C.greyMid}`, fontSize: 12 }}>
+              <span style={{ color: C.textMid }}>{k}</span>
+              <span style={{ fontWeight: 500, color: C.text }}>{v}</span>
+            </div>
+          ))}
+          {sh.notes && (
+            <div style={{ fontSize: 12, color: C.textMid, marginTop: 8, fontStyle: "italic" }}>{sh.notes}</div>
+          )}
+          {msg[sh.id] && (
+            <Alert type={msg[sh.id].startsWith("✓") ? "success" : "error"} style={{ marginTop: 10 }}>{msg[sh.id]}</Alert>
+          )}
+          {!msg[sh.id]?.startsWith("✓") && (
+            <Btn variant="teal" full style={{ marginTop: 12 }}
+              disabled={accepting[sh.id]} onClick={() => accept(sh)}>
+              {accepting[sh.id] ? "Accepting..." : "Accept This Shift"}
+            </Btn>
+          )}
+          <div style={{ fontSize: 10, color: C.textDim, marginTop: 8 }}>
+            This shift closes as soon as accepted. First to accept confirms.
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+/* ─── CANDIDATE ASSIGNMENTS ──────────────────────────────────────────────── */
+const CandidateAssignments = ({ assignments, loading, onRefresh }) => {
+  const [active, setActive] = useState(null);
+  const [doing, setDoing] = useState({});
+  const [msgs, setMsgs] = useState({});
+
+  const doAction = async (aId, action, extra = {}) => {
+    setDoing(d => ({ ...d, [aId + action]: true }));
+    try {
+      const res = await callApi(action, { assignment_id: aId, ...extra });
+      if (res.error) { setMsgs(m => ({ ...m, [aId]: res.error })); return; }
+      setMsgs(m => ({ ...m, [aId]: res.message || "Done." }));
+      onRefresh();
+    } catch (e) { setMsgs(m => ({ ...m, [aId]: e.message })); }
+    finally { setDoing(d => ({ ...d, [aId + action]: false })); }
+  };
+
+  if (loading) return <Loader />;
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 20, fontWeight: 700, color: C.navy }}>My Assignments</div>
+        <Btn variant="ghost" small onClick={onRefresh}>↻ Refresh</Btn>
+      </div>
+      {assignments.length === 0 ? (
+        <div style={{ ...s.card, textAlign: "center", padding: "40px 20px", color: C.textMid }}>
+          No assignments yet. Accept a shift to get started.
+        </div>
+      ) : assignments.map(a => {
+        const isActive = active === a.id;
+        const statusColor = a.status === "Completed" ? C.teal : a.status === "Checked In" ? C.blue : C.navy;
+        return (
+          <div key={a.id} style={{ ...s.card, marginBottom: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start",
+              cursor: "pointer" }} onClick={() => setActive(isActive ? null : a.id)}>
+              <div>
+                <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 15, fontWeight: 700, color: C.navy }}>
+                  {a.clinic_name} — {a.role}
+                </div>
+                <div style={{ fontSize: 12, color: C.textMid, marginTop: 2 }}>
+                  {a.shift_date} · {a.start_time}–{a.end_time} · {a.suburb}
+                </div>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                <Badge label={a.status} type={a.status === "Completed" ? "completed" : a.status === "Cancelled" ? "cancelled" : "confirmed"} />
+                <span style={{ fontSize: 11, color: C.textDim }}>{isActive ? "▲ hide" : "▼ manage"}</span>
+              </div>
+            </div>
+
+            {isActive && (
+              <div style={{ marginTop: 14 }} className="fade">
+                {[["Check In", a.check_in_time], ["Check Out", a.check_out_time],
+                  ["Break (min)", a.break_minutes || "0"], ["Total Hours", a.total_paid_hours || "—"]
+                ].map(([k, v]) => (
+                  <div key={k} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0",
+                    borderBottom: `1px solid ${C.greyMid}`, fontSize: 12 }}>
+                    <span style={{ color: C.textMid }}>{k}</span>
+                    <span style={{ fontWeight: 600, color: C.text }}>{v}</span>
+                  </div>
+                ))}
+
+                {msgs[a.id] && <Alert type="success" style={{ marginTop: 10 }}>{msgs[a.id]}</Alert>}
+
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 14 }}>
+                  {!a.check_in_time && a.status !== "Completed" && (
+                    <Btn variant="teal" small disabled={doing[a.id + "check_in"]}
+                      onClick={() => doAction(a.id, "check_in")}>
+                      {doing[a.id + "check_in"] ? "..." : "Check In"}
+                    </Btn>
+                  )}
+                  {a.check_in_time && !a.check_out_time && (
+                    <>
+                      <Btn variant="ghost" small disabled={doing[a.id + "add_break"]}
+                        onClick={() => {
+                          const min = prompt("Enter break duration in minutes:");
+                          if (min && !isNaN(min)) doAction(a.id, "add_break", { break_minutes: parseInt(min) });
+                        }}>Add Break</Btn>
+                      <Btn variant="outline" small disabled={doing[a.id + "check_out"]}
+                        onClick={() => doAction(a.id, "check_out")}>
+                        {doing[a.id + "check_out"] ? "..." : "Check Out"}
+                      </Btn>
+                    </>
+                  )}
+                  {a.check_out_time && a.candidate_submitted !== "TRUE" && (
+                    <Btn variant="teal" small disabled={doing[a.id + "submit_timesheet"]}
+                      onClick={() => doAction(a.id, "submit_timesheet", { candidate_email: "" })}>
+                      {doing[a.id + "submit_timesheet"] ? "..." : "Submit Timesheet"}
+                    </Btn>
+                  )}
+                  {a.candidate_submitted === "TRUE" && a.clinic_confirmed !== "TRUE" && (
+                    <span style={{ fontSize: 12, color: C.amber, fontWeight: 600 }}>⏳ Awaiting clinic confirmation</span>
+                  )}
+                  {a.clinic_confirmed === "TRUE" && (
+                    <span style={{ fontSize: 12, color: C.teal, fontWeight: 600 }}>✓ Hours confirmed by clinic</span>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+/* ─── CANDIDATE PROFILE ──────────────────────────────────────────────────── */
+const CandidateProfile = ({ user }) => (
+  <div style={{ maxWidth: 500 }}>
+    <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 20, fontWeight: 700, color: C.navy, marginBottom: 16 }}>
+      My Profile
+    </div>
+    <div style={{ ...s.card }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
+        <div>
+          <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 18, fontWeight: 700, color: C.navy }}>{user.full_name}</div>
+          <div style={{ fontSize: 13, color: C.textMid }}>{user.role_type} · {user.suburb}, {user.state}</div>
+        </div>
+        <Badge label={user.account_status} type={user.account_status === "active" ? "active" : "pending"} />
+      </div>
+      <Divider />
+      {[["Email", user.email], ["Phone", user.phone], ["Travel Radius", user.travel_radius],
+        ["Experience", user.years_experience], ["PMS Skills", user.pms_experience],
+        ["Preferred Rate", user.preferred_rate ? `$${user.preferred_rate}/hr` : "—"],
+        ["Reliability Score", user.reliability_score || 85],
+      ].map(([k, v]) => (
+        <div key={k} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0",
+          borderBottom: `1px solid ${C.greyMid}`, fontSize: 13 }}>
+          <span style={{ color: C.textMid }}>{k}</span>
+          <span style={{ fontWeight: 500, color: C.text }}>{v || "—"}</span>
+        </div>
+      ))}
+    </div>
+    <Alert type="info" style={{ marginTop: 14 }}>
+      To update your profile details, please contact our team. Profile editing will be available in the next update.
+    </Alert>
+  </div>
+);
+
+/* ═══════════════════════════════════════════════════════ ROOT APP */
+const App = () => {
+  const [page, setPage] = useState("home");
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    const saved = getSession();
+    if (saved) {
+      setUser(saved);
+      setPage(saved.user_type === "clinic" ? "clinic_dash" : "candidate_dash");
+    }
+  }, []);
+
+  const onLogin = (u) => {
+    setUser(u);
+    setPage(u.user_type === "clinic" ? "clinic_dash" : "candidate_dash");
+  };
+
+  const onLogout = () => {
+    clearSession();
+    setUser(null);
+    setPage("home");
+  };
+
+  const goTo = (p) => setPage(p);
+
+  if (!API_URL && page !== "home" && page !== "login" && !page.startsWith("signup")) {
+    return (
+      <div style={{ minHeight: "100vh", background: C.grey, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+        <div style={{ maxWidth: 500, width: "100%", ...s.card, padding: "32px 28px" }}>
+          <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 22, fontWeight: 700, color: C.navy, marginBottom: 12 }}>
+            🔗 Connect Google Sheets
+          </div>
+          <Alert type="warn">
+            The app is not connected to a database yet. You need to deploy the Google Apps Script
+            and add the URL to the code before users can register and log in.
+          </Alert>
+          <div style={{ fontSize: 13, color: C.textMid, lineHeight: 1.7, marginBottom: 20 }}>
+            <strong>Setup steps:</strong><br/>
+            1. Open <strong>apps_script.js</strong> (provided separately)<br/>
+            2. Create a new Google Apps Script project<br/>
+            3. Paste the script and deploy as Web App<br/>
+            4. Copy the Web App URL<br/>
+            5. Paste it into <code style={{ background: C.grey, padding: "1px 5px", borderRadius: 3,
+              fontFamily: "monospace" }}>const API_URL = ""</code> at the top of this file<br/>
+            6. Save and redeploy to Vercel
+          </div>
+          <Btn variant="teal" onClick={() => setPage("home")}>← Back to Homepage</Btn>
+        </div>
+      </div>
+    );
+  }
+
+  const pages = {
+    home: <Homepage goTo={goTo} />,
+    login: <Login goTo={goTo} onLogin={onLogin} />,
+    signup: <SignupChoose goTo={goTo} />,
+    signup_clinic: <SignupClinic goTo={goTo} onLogin={onLogin} />,
+    signup_candidate: <SignupCandidate goTo={goTo} onLogin={onLogin} />,
+    clinic_dash: user ? <ClinicDashboard user={user} onLogout={onLogout} /> : <Login goTo={goTo} onLogin={onLogin} />,
+    candidate_dash: user ? <CandidateDashboard user={user} onLogout={onLogout} /> : <Login goTo={goTo} onLogin={onLogin} />,
+  };
+
+  return pages[page] || pages["home"];
+};
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App />);
+</script>
+</body>
+</html>
